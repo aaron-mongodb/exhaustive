@@ -51,11 +51,18 @@ const (
 // switchConfig is configuration for switchChecker.
 type switchConfig struct {
 	explicit                    bool
-	defaultSignifiesExhaustive  bool
 	requireExhaustiveLowerBound int
 	checkGenerated              bool
 	ignoreConstant              *regexp.Regexp // can be nil
 	ignoreType                  *regexp.Regexp // can be nil
+
+	defaultSignifiesExhaustive           bool
+	defaultSignifiesExhaustiveExceptions *regexp.Regexp // can be nill
+	defaultSignifiesExhaustiveList       *regexp.Regexp // can be nill
+
+	defaultRequired           bool
+	defaultRequiredList       *regexp.Regexp // can be nill
+	defaultRequiredExceptions *regexp.Regexp // can be nill
 }
 
 // switchChecker returns a node visitor that checks exhaustiveness of
@@ -110,6 +117,10 @@ func switchChecker(pass *analysis.Pass, cfg switchConfig, generated boolCache, c
 		var checkl checklist
 		checkl.ignoreConstant(cfg.ignoreConstant)
 		checkl.ignoreType(cfg.ignoreType)
+		checkl.requireDefaultList(cfg.defaultRequiredList)
+		checkl.requireDefaultException(cfg.defaultRequiredExceptions)
+		checkl.defaultSignifiesExhaustiveList(cfg.defaultSignifiesExhaustiveList)
+		checkl.defaultSignifiesExhaustiveException(cfg.defaultSignifiesExhaustiveExceptions)
 
 		for _, e := range es {
 			checkl.add(e.typ, e.members, pass.Pkg == e.typ.Pkg())
@@ -117,16 +128,30 @@ func switchChecker(pass *analysis.Pass, cfg switchConfig, generated boolCache, c
 		enumSize := len(checkl.remaining())
 
 		def := analyzeSwitchClauses(sw, pass.TypesInfo, checkl.found)
+
+		// Report any lack-of-defaults
+		requiresDefault := checkl.requiresDefaultDetected || (cfg.defaultRequired && !checkl.requiresDefaultExceptionDetected)
+		if requiresDefault && !def {
+			pass.Report(makeRequireDefaultDiagnostic(sw, dedupEnumTypes(toEnumTypes(es))))
+		}
+		// If everything is listed, we're done
 		if len(checkl.remaining()) == 0 {
-			// All enum members accounted for.
-			// Nothing to report.
 			return true, resultEnumMembersAccounted
 		}
-		if def && cfg.defaultSignifiesExhaustive && enumSize > cfg.requireExhaustiveLowerBound {
-			// Though enum members are not accounted for, the
-			// existence of the default case signifies
-			// exhaustiveness.  So don't report.
-			return true, resultDefaultCaseSuffices
+		// If we're part of a very small domain, report any non-exhaustive cases regardless of default
+		if enumSize <= cfg.requireExhaustiveLowerBound {
+			pass.Report(makeSwitchDiagnostic(sw, dedupEnumTypes(toEnumTypes(es)), checkl.remaining()))
+			return true, resultReportedDiagnostic
+		}
+		// We have a default branch: there still may be cases where we don't consider that sufficient
+		if def {
+			defaultIsSufficient := (cfg.defaultSignifiesExhaustive && !checkl.defaultSignifiesExhaustiveExceptionDetected) || checkl.defaultSignifiesExhaustiveDetected
+			if defaultIsSufficient {
+				// Though enum members are not accounted for, the
+				// existence of the default case signifies
+				// exhaustiveness.  So don't report.
+				return true, resultDefaultCaseSuffices
+			}
 		}
 		pass.Report(makeSwitchDiagnostic(sw, dedupEnumTypes(toEnumTypes(es)), checkl.remaining()))
 		return true, resultReportedDiagnostic
@@ -166,6 +191,17 @@ func makeSwitchDiagnostic(sw *ast.SwitchStmt, enumTypes []enumType, missing map[
 			"missing cases in switch of type %s: %s",
 			diagnosticEnumTypes(enumTypes),
 			diagnosticGroups(groupify(missing, enumTypes)),
+		),
+	}
+}
+
+func makeRequireDefaultDiagnostic(sw *ast.SwitchStmt, enumTypes []enumType) analysis.Diagnostic {
+	return analysis.Diagnostic{
+		Pos: sw.Pos(),
+		End: sw.End(),
+		Message: fmt.Sprintf(
+			"missing required default in switch of type %s",
+			diagnosticEnumTypes(enumTypes),
 		),
 	}
 }

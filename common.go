@@ -258,14 +258,35 @@ type checklist struct {
 	checkl           map[member]struct{}
 	ignoreConstantRe *regexp.Regexp
 	ignoreTypeRe     *regexp.Regexp
+
+	requiresDefaultDetected                     bool
+	requiresDefaultExceptionDetected            bool
+	defaultSignifiesExhaustiveDetected          bool
+	defaultSignifiesExhaustiveExceptionDetected bool
+
+	requiresDefaultRe                     *regexp.Regexp
+	requiresDefaultExceptionRe            *regexp.Regexp
+	defaultSignifiesExhaustiveRe          *regexp.Regexp
+	defaultSignifiesExhaustiveExceptionRe *regexp.Regexp
 }
 
 func (c *checklist) ignoreConstant(pattern *regexp.Regexp) {
 	c.ignoreConstantRe = pattern
 }
-
 func (c *checklist) ignoreType(pattern *regexp.Regexp) {
 	c.ignoreTypeRe = pattern
+}
+func (c *checklist) requireDefaultList(pattern *regexp.Regexp) {
+	c.requiresDefaultRe = pattern
+}
+func (c *checklist) requireDefaultException(pattern *regexp.Regexp) {
+	c.requiresDefaultExceptionRe = pattern
+}
+func (c *checklist) defaultSignifiesExhaustiveList(pattern *regexp.Regexp) {
+	c.defaultSignifiesExhaustiveRe = pattern
+}
+func (c *checklist) defaultSignifiesExhaustiveException(pattern *regexp.Regexp) {
+	c.defaultSignifiesExhaustiveExceptionRe = pattern
 }
 
 func (*checklist) reMatch(re *regexp.Regexp, s string) bool {
@@ -293,6 +314,19 @@ func (c *checklist) add(et enumType, em enumMembers, includeUnexported bool) {
 		}
 		if c.reMatch(c.ignoreTypeRe, fmt.Sprintf("%s.%s", et.Pkg().Path(), et.TypeName.Name())) {
 			return
+		}
+
+		if !c.requiresDefaultDetected && c.reMatch(c.requiresDefaultRe, fmt.Sprintf("%s.%s", et.Pkg().Path(), et.TypeName.Name())) {
+			c.requiresDefaultDetected = true
+		}
+		if !c.requiresDefaultExceptionDetected && c.reMatch(c.requiresDefaultExceptionRe, fmt.Sprintf("%s.%s", et.Pkg().Path(), et.TypeName.Name())) {
+			c.requiresDefaultExceptionDetected = true
+		}
+		if !c.defaultSignifiesExhaustiveDetected && c.reMatch(c.defaultSignifiesExhaustiveRe, fmt.Sprintf("%s.%s", et.Pkg().Path(), et.TypeName.Name())) {
+			c.defaultSignifiesExhaustiveDetected = true
+		}
+		if !c.defaultSignifiesExhaustiveExceptionDetected && c.reMatch(c.defaultSignifiesExhaustiveExceptionRe, fmt.Sprintf("%s.%s", et.Pkg().Path(), et.TypeName.Name())) {
+			c.defaultSignifiesExhaustiveExceptionDetected = true
 		}
 		mem := member{
 			em.NameToPos[name],

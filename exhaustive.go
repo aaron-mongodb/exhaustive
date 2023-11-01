@@ -19,9 +19,14 @@ func registerFlags() {
 	Analyzer.Flags.BoolVar(&fExplicitExhaustiveMap, ExplicitExhaustiveMapFlag, false, `check map literal only if associated with "//exhaustive:enforce" comment`)
 	Analyzer.Flags.BoolVar(&fCheckGenerated, CheckGeneratedFlag, false, "check generated files")
 	Analyzer.Flags.BoolVar(&fDefaultSignifiesExhaustive, DefaultSignifiesExhaustiveFlag, false, "switch statement is unconditionally exhaustive if it has a default case")
+	Analyzer.Flags.Var(&fDefaultSignifiesExhaustiveExceptions, DefaultSignifiesExhaustiveExceptionsFlag, "ignore default for exhaustiveness for types matching `regexp`")
+	Analyzer.Flags.Var(&fDefaultSignifiesExhaustiveList, DefaultSignifiesExhaustiveListFlag, "include default for exhaustiveness for types matching `regexp`")
 	Analyzer.Flags.IntVar(&fRequireExhaustiveLowerBound, RequireExhaustiveLowerBoundFlag, 0, "any switch over a domain with fewer elements must have all listed, even with default")
 	Analyzer.Flags.Var(&fIgnoreEnumMembers, IgnoreEnumMembersFlag, "ignore constants matching `regexp`")
 	Analyzer.Flags.Var(&fIgnoreEnumTypes, IgnoreEnumTypesFlag, "ignore types matching `regexp`")
+	Analyzer.Flags.BoolVar(&fDefaultRequires, DefaultRequiresFlag, false, "require default on all switches")
+	Analyzer.Flags.Var(&fDefaultRequiresList, DefaultRequiresListFlag, "require default for types matching `regexp`")
+	Analyzer.Flags.Var(&fDefaultRequiresExceptions, DefaultRequiresExceptionsFlag, "do not require default for types matching `regexp`")
 	Analyzer.Flags.BoolVar(&fPackageScopeOnly, PackageScopeOnlyFlag, false, "only discover enums declared in file-level blocks")
 
 	var unused string
@@ -32,15 +37,20 @@ func registerFlags() {
 // Flag names used by the analyzer. These are exported for use by analyzer
 // driver programs.
 const (
-	CheckFlag                       = "check"
-	ExplicitExhaustiveSwitchFlag    = "explicit-exhaustive-switch"
-	ExplicitExhaustiveMapFlag       = "explicit-exhaustive-map"
-	CheckGeneratedFlag              = "check-generated"
-	DefaultSignifiesExhaustiveFlag  = "default-signifies-exhaustive"
-	RequireExhaustiveLowerBoundFlag = "require-exhaustive-lower-bound"
-	IgnoreEnumMembersFlag           = "ignore-enum-members"
-	IgnoreEnumTypesFlag             = "ignore-enum-types"
-	PackageScopeOnlyFlag            = "package-scope-only"
+	CheckFlag                                = "check"
+	ExplicitExhaustiveSwitchFlag             = "explicit-exhaustive-switch"
+	ExplicitExhaustiveMapFlag                = "explicit-exhaustive-map"
+	CheckGeneratedFlag                       = "check-generated"
+	DefaultSignifiesExhaustiveFlag           = "default-signifies-exhaustive"
+	DefaultSignifiesExhaustiveExceptionsFlag = "default-signifies-exhaustive-exceptions"
+	DefaultSignifiesExhaustiveListFlag       = "default-signifies-exhaustive-list"
+	RequireExhaustiveLowerBoundFlag          = "require-exhaustive-lower-bound"
+	IgnoreEnumMembersFlag                    = "ignore-enum-members"
+	IgnoreEnumTypesFlag                      = "ignore-enum-types"
+	DefaultRequiresFlag                      = "require-default"
+	DefaultRequiresListFlag                  = "require-default-list"
+	DefaultRequiresExceptionsFlag            = "require-default-exceptions"
+	PackageScopeOnlyFlag                     = "package-scope-only"
 
 	// Deprecated flag names.
 	IgnorePatternFlag    = "ignore-pattern"    // Deprecated: use IgnoreEnumMembersFlag.
@@ -49,15 +59,20 @@ const (
 
 // Flag values.
 var (
-	fCheck                       = stringsFlag{elements: defaultCheckElements, filter: validCheckElement}
-	fExplicitExhaustiveSwitch    bool
-	fExplicitExhaustiveMap       bool
-	fCheckGenerated              bool
-	fDefaultSignifiesExhaustive  bool
-	fRequireExhaustiveLowerBound int
-	fIgnoreEnumMembers           regexpFlag
-	fIgnoreEnumTypes             regexpFlag
-	fPackageScopeOnly            bool
+	fCheck                                = stringsFlag{elements: defaultCheckElements, filter: validCheckElement}
+	fExplicitExhaustiveSwitch             bool
+	fExplicitExhaustiveMap                bool
+	fCheckGenerated                       bool
+	fDefaultSignifiesExhaustive           bool
+	fDefaultSignifiesExhaustiveList       regexpFlag
+	fDefaultSignifiesExhaustiveExceptions regexpFlag
+	fRequireExhaustiveLowerBound          int
+	fIgnoreEnumMembers                    regexpFlag
+	fIgnoreEnumTypes                      regexpFlag
+	fDefaultRequires                      bool
+	fDefaultRequiresList                  regexpFlag
+	fDefaultRequiresExceptions            regexpFlag
+	fPackageScopeOnly                     bool
 )
 
 // resetFlags resets the flag variables to default values.
@@ -68,9 +83,14 @@ func resetFlags() {
 	fExplicitExhaustiveMap = false
 	fCheckGenerated = false
 	fDefaultSignifiesExhaustive = false
+	fDefaultSignifiesExhaustiveList = regexpFlag{}
+	fDefaultSignifiesExhaustiveExceptions = regexpFlag{}
 	fRequireExhaustiveLowerBound = 0
 	fIgnoreEnumMembers = regexpFlag{}
 	fIgnoreEnumTypes = regexpFlag{}
+	fDefaultRequires = false
+	fDefaultRequiresList = regexpFlag{}
+	fDefaultRequiresExceptions = regexpFlag{}
 	fPackageScopeOnly = false
 }
 
@@ -124,11 +144,18 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case elementSwitch:
 			conf := switchConfig{
 				explicit:                    fExplicitExhaustiveSwitch,
-				defaultSignifiesExhaustive:  fDefaultSignifiesExhaustive,
 				requireExhaustiveLowerBound: fRequireExhaustiveLowerBound,
 				checkGenerated:              fCheckGenerated,
 				ignoreConstant:              fIgnoreEnumMembers.re,
 				ignoreType:                  fIgnoreEnumTypes.re,
+
+				defaultSignifiesExhaustive:           fDefaultSignifiesExhaustive,
+				defaultSignifiesExhaustiveExceptions: fDefaultSignifiesExhaustiveExceptions.re,
+				defaultSignifiesExhaustiveList:       fDefaultSignifiesExhaustiveList.re,
+
+				defaultRequired:           fDefaultRequires,
+				defaultRequiredList:       fDefaultRequiresList.re,
+				defaultRequiredExceptions: fDefaultRequiresExceptions.re,
 			}
 			checker := switchChecker(pass, conf, generated, comments)
 			inspect.WithStack([]ast.Node{&ast.SwitchStmt{}}, toVisitor(checker))
