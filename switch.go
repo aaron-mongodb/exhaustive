@@ -50,11 +50,12 @@ const (
 
 // switchConfig is configuration for switchChecker.
 type switchConfig struct {
-	explicit                   bool
-	defaultSignifiesExhaustive bool
-	checkGenerated             bool
-	ignoreConstant             *regexp.Regexp // can be nil
-	ignoreType                 *regexp.Regexp // can be nil
+	explicit                    bool
+	defaultSignifiesExhaustive  bool
+	requireExhaustiveLowerBound int
+	checkGenerated              bool
+	ignoreConstant              *regexp.Regexp // can be nil
+	ignoreType                  *regexp.Regexp // can be nil
 }
 
 // switchChecker returns a node visitor that checks exhaustiveness of
@@ -113,6 +114,7 @@ func switchChecker(pass *analysis.Pass, cfg switchConfig, generated boolCache, c
 		for _, e := range es {
 			checkl.add(e.typ, e.members, pass.Pkg == e.typ.Pkg())
 		}
+		enumSize := len(checkl.remaining())
 
 		def := analyzeSwitchClauses(sw, pass.TypesInfo, checkl.found)
 		if len(checkl.remaining()) == 0 {
@@ -120,7 +122,7 @@ func switchChecker(pass *analysis.Pass, cfg switchConfig, generated boolCache, c
 			// Nothing to report.
 			return true, resultEnumMembersAccounted
 		}
-		if def && cfg.defaultSignifiesExhaustive {
+		if def && cfg.defaultSignifiesExhaustive && enumSize > cfg.requireExhaustiveLowerBound {
 			// Though enum members are not accounted for, the
 			// existence of the default case signifies
 			// exhaustiveness.  So don't report.
